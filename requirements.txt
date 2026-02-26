@@ -1,5 +1,5 @@
 streamlit
-moviepy
+moviepy==1.0.3
 baidu-aip
-numpy
+numpy<2.0.0
 Pillow
