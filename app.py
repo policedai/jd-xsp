@@ -6,37 +6,31 @@ import numpy as np
 from moviepy.editor import AudioFileClip, ImageClip, CompositeVideoClip, concatenate_audioclips
 from aip import AipSpeech
 
-# --- [1. 登录验证功能] ---
+# --- [1. 纯密码登录验证] ---
 def check_password():
     """如果返回 True，则用户输入了正确的密码"""
     def password_entered():
         """检查用户输入的密码是否正确"""
-        if (
-            st.session_state["username"] == st.secrets["passwords"]["username"]
-            and st.session_state["password"] == st.secrets["passwords"]["password"]
-        ):
+        if st.session_state["password"] == st.secrets["passwords"]["password"]:
             st.session_state["password_correct"] = True
             del st.session_state["password"]  # 不在内存中保留密码
-            del st.session_state["username"]
         else:
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        # 首次运行，显示输入框
-        st.text_input("用户名", on_change=password_entered, key="username")
-        st.text_input("密码", type="password", on_change=password_entered, key="password")
+        # 首次运行，显示密码输入框
+        st.text_input("请输入访问密码", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        # 密码错误，再次显示输入框
-        st.text_input("用户名", on_change=password_entered, key="username")
-        st.text_input("密码", type="password", on_change=password_entered, key="password")
-        st.error("😕 用户名或密码错误")
+        # 密码错误
+        st.text_input("请输入访问密码", type="password", on_change=password_entered, key="password")
+        st.error("😕 密码错误，请重新输入")
         return False
     else:
         # 密码正确
         return True
 
-# --- [2. 兼容性补丁与工具函数] ---
+# --- [2. 图像处理补丁] ---
 if hasattr(PIL.Image, 'Resampling'):
     RESAMPLE_MODE = PIL.Image.Resampling.LANCZOS
 else:
@@ -69,7 +63,7 @@ def create_text_image(text, fontsize, color, font_path, size=(720, 1280), line_s
         current_y += h + line_spacing
     return np.array(img)
 
-# --- [3. 视频生成逻辑核心] ---
+# --- [3. 视频生成核心逻辑] ---
 def get_mixed_audio_safe_pause(text, client):
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     clips = []
@@ -133,13 +127,12 @@ def make_video_one_image(title_text, content_text, image_file, client):
 
 # --- [4. 主程序入口] ---
 def main():
-    st.set_page_config(page_title="内部课件制作系统")
+    st.set_page_config(page_title="内部制作工具", layout="centered")
     
     if check_password():
-        # --- 只有登录后才会运行这里的逻辑 ---
+        # --- 登录成功后的内容 ---
         st.title("🎬 内部专用视频助手")
         
-        # 加载百度密钥
         try:
             client = AipSpeech(
                 str(st.secrets["baidu_api"]["app_id"]),
@@ -150,11 +143,11 @@ def main():
             st.error("密钥未配置")
             st.stop()
 
-        user_title = st.text_input("💎 标题:", "英语万能搭配")
-        user_content = st.text_area("✍️ 朗读内容:", "a good way to learn English\n学习英语的好方法", height=200)
+        user_title = st.text_input("💎 标题:", "中考英语万能搭配")
+        user_content = st.text_area("✍️ 朗读正文:", "a good way to learn English\n学习英语的好方法", height=200)
         bg_upload = st.file_uploader("📸 背景图:", type=["jpg", "png", "jpeg"])
 
-        if st.button("🚀 生成视频"):
+        if st.button("🚀 生成视频成品"):
             if user_content and bg_upload:
                 with st.spinner("处理中..."):
                     res = make_video_one_image(user_title, user_content, bg_upload, client)
