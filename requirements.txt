@@ -3,4 +3,4 @@ moviepy==1.0.3
 baidu-aip
 chardet
 numpy<2.0.0
-Pillow
+Pillow>=10.0.0
