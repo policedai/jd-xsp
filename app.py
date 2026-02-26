@@ -132,7 +132,7 @@ def make_video_one_image(title_text, content_text, image_source, client):
 def main():
     st.set_page_config(page_title="视频助手", layout="centered")
     if check_password():
-        st.title("🎬 内部专用视频助手")
+        st.title("🎬 Mary朗读视频助手")
         try:
             client = AipSpeech(
                 str(st.secrets["baidu_api"]["app_id"]),
@@ -172,3 +172,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
