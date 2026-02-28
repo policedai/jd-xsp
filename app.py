@@ -33,7 +33,7 @@ def create_hd_text_image(title, content, font_path, settings):
     scale = 2  
     base_w = 720
     canvas_w = base_w * scale
-    max_text_w = (base_w - 80) * scale 
+    max_text_w = (base_w - 100) * scale 
     
     color_map = {
         "鹅黄色": (255, 241, 67),
@@ -100,6 +100,7 @@ def create_hd_text_image(title, content, font_path, settings):
         else:
             txt, font, clr, w, h = item
             x = (canvas_w - w) // 2
+            # 强化描边
             for off in [(-3,-3), (3,-3), (-3,3), (3,3), (0,3), (0,-3)]:
                 hd_draw.text((x+off[0], curr_y+off[1]), txt, font=font, fill=(0,0,0,255))
             hd_draw.text((x, curr_y), txt, font=font, fill=clr)
@@ -109,7 +110,7 @@ def create_hd_text_image(title, content, font_path, settings):
     return np.array(hd_img.resize((base_w, final_h), RESAMPLE_MODE))
 
 # --- [4. 视频合成核心] ---
-def build_video(title, content, bg_image, client, settings):
+def build_video(title, content, bg_source, client, settings):
     paragraphs = [p.strip() for p in content.split('\n') if p.strip()]
     clips, temp_files = [], []
     
@@ -135,16 +136,28 @@ def build_video(title, content, bg_image, client, settings):
     font_path = "simhei.ttf" if os.path.exists("simhei.ttf") else "Arial"
 
     try:
-        if bg_image:
-            with PIL.Image.open(bg_image) as img:
+        # 背景处理逻辑
+        if settings['bg_type'] == "上传图片" and bg_source:
+            with PIL.Image.open(bg_source) as img:
                 img = img.convert("RGB")
                 r = max(720/img.size[0], 1280/img.size[1])
                 new_size = (int(img.size[0]*r), int(img.size[1]*r))
                 bg_arr = np.array(img.resize(new_size, RESAMPLE_MODE))
-                bg_clip = ImageClip(bg_arr).set_duration(duration).set_position("center")
         else:
-            bg_clip = ImageClip(np.zeros((1280, 720, 3))).set_duration(duration)
+            # 纯色背景库 (RGB)
+            pure_colors = {
+                "深邃黑": (15, 15, 15),
+                "莫兰迪灰": (70, 80, 88),
+                "奶茶色": (198, 172, 143),
+                "暗夜绿": (18, 44, 40),
+                "磨砂蓝": (36, 54, 75)
+            }
+            c_rgb = pure_colors.get(settings['bg_color'], (15, 15, 15))
+            bg_arr = np.full((1280, 720, 3), c_rgb, dtype=np.uint8)
 
+        bg_clip = ImageClip(bg_arr).set_duration(duration).set_position("center")
+
+        # 文字图层生成
         text_arr = create_hd_text_image(title, content, font_path, settings)
         text_clip = ImageClip(text_arr).set_duration(duration).set_position(('center', 120))
 
@@ -167,27 +180,35 @@ def build_video(title, content, bg_image, client, settings):
 
 # --- [5. 界面入口] ---
 def main():
-    st.set_page_config(page_title="视频助手", layout="centered")
+    st.set_page_config(page_title="高清视频助手", layout="centered")
     if not check_password(): return
 
     st.title("🎬 视频自动渲染助手")
     
-    # --- 配置面板：平铺在主界面上方 ---
+    # --- 配置面板 ---
     with st.expander("⚙️ 样式与配音设置", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
             v_opt = st.selectbox("🎙️ 朗读音色", ["男声 (4179)", "女声 (4146)"])
             v_id = 4179 if "男声" in v_opt else 4146
             t_size = st.slider("📏 标题字号", 30, 80, 52)
+            bg_mode = st.radio("🖼️ 背景模式", ["上传图片", "纯色背景"], horizontal=True)
+            
         with col2:
-            t_color = st.selectbox("🎨 正文颜色", ["鹅黄色", "科技白", "象牙金", "护眼绿", "天空蓝"])
+            t_color = st.selectbox("🎨 文字颜色", ["鹅黄色", "科技白", "象牙金", "护眼绿", "天空蓝"])
             c_size = st.slider("📝 正文字号", 20, 60, 34)
+            if bg_mode == "纯色背景":
+                bg_color = st.selectbox("🎨 选择背景色", ["深邃黑", "莫兰迪灰", "奶茶色", "暗夜绿", "磨砂蓝"])
+            else:
+                bg_color = "深邃黑" # 默认
 
     settings = {
         "voice_id": v_id,
         "text_color": t_color,
         "title_size": t_size,
-        "content_size": c_size
+        "content_size": c_size,
+        "bg_type": bg_mode,
+        "bg_color": bg_color
     }
 
     # 百度 API 初始化
@@ -202,7 +223,9 @@ def main():
     u_title = st.text_input("💎 视频标题:", "输入你的标题")
     u_content = st.text_area("✍️ 朗读内容:", height=300, placeholder="在此输入需要生成的文字内容...")
     
-    u_bg = st.file_uploader("📸 上传背景图片:", type=["jpg", "png", "jpeg"])
+    u_bg = None
+    if bg_mode == "上传图片":
+        u_bg = st.file_uploader("📸 上传背景图片:", type=["jpg", "png", "jpeg"])
     
     st.write("") 
     gen_btn = st.button("🚀 开始合成高清视频", use_container_width=True)
@@ -212,11 +235,9 @@ def main():
             st.error("请输入内容后再生成！")
             return
             
-        src = u_bg if u_bg else ("default_bg.jpg" if os.path.exists("default_bg.jpg") else None)
-        
         with st.spinner("正在合成高清视频..."):
             try:
-                video_path = build_video(u_title, u_content, src, client, settings)
+                video_path = build_video(u_title, u_content, u_bg, client, settings)
                 if video_path:
                     st.success("✅ 渲染完成！")
                     st.video(video_path)
