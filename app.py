@@ -183,7 +183,7 @@ def main():
     st.set_page_config(page_title="高清视频助手", layout="centered")
     if not check_password(): return
 
-    st.title("🎬 视频自动渲染助手")
+    st.title("🎬 姜老师朗读小助手")
     
     # --- 配置面板 ---
     with st.expander("⚙️ 样式与配音设置", expanded=True):
@@ -248,3 +248,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
