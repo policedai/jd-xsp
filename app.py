@@ -156,7 +156,7 @@ def build_video(title, content, bg_image, client, settings):
             fps=24, 
             codec="libx264", 
             audio_codec="aac", 
-            bitrate="4500k", # 进一步调高码率确保极致清晰
+            bitrate="4500k",
             logger=None
         )
         return output_name
@@ -167,28 +167,20 @@ def build_video(title, content, bg_image, client, settings):
 
 # --- [5. 界面入口] ---
 def main():
-    st.set_page_config(page_title="高清视频助手", layout="centered")
+    st.set_page_config(page_title="视频助手", layout="centered")
     if not check_password(): return
 
-    st.title("🎬 高清视频自动生成器")
+    st.title("🎬 视频自动渲染助手")
     
-    # --- 配置面板：放在标题下方，输入框上方 ---
-    with st.expander("🛠️ 视频参数设置 (点击展开/收起)", expanded=True):
-        col1, col2, col3 = st.columns(3)
+    # --- 配置面板：平铺在主界面上方 ---
+    with st.expander("⚙️ 样式与配音设置", expanded=True):
+        col1, col2 = st.columns(2)
         with col1:
             v_opt = st.selectbox("🎙️ 朗读音色", ["男声 (4179)", "女声 (4146)"])
             v_id = 4179 if "男声" in v_opt else 4146
+            t_size = st.slider("📏 标题字号", 30, 80, 52)
         with col2:
             t_color = st.selectbox("🎨 正文颜色", ["鹅黄色", "科技白", "象牙金", "护眼绿", "天空蓝"])
-        with col3:
-            # 增加一个背景预览开关或简单的布局占位
-            st.write("") 
-            st.write("✨ 高清超采样已开启")
-
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            t_size = st.slider("📏 标题字号", 30, 80, 52)
-        with col_s2:
             c_size = st.slider("📝 正文字号", 20, 60, 34)
 
     settings = {
@@ -207,34 +199,31 @@ def main():
 
     # --- 输入区 ---
     st.markdown("---")
-    u_title = st.text_input("💎 视频标题:", "输入震撼人心的标题")
-    u_content = st.text_area("✍️ 朗读内容:", height=300, placeholder="在此输入需要转换成视频的文字...")
+    u_title = st.text_input("💎 视频标题:", "输入你的标题")
+    u_content = st.text_area("✍️ 朗读内容:", height=300, placeholder="在此输入需要生成的文字内容...")
     
-    col_u1, col_u2 = st.columns([2, 1])
-    with col_u1:
-        u_bg = st.file_uploader("📸 上传背景图片 (720x1280 最佳):", type=["jpg", "png", "jpeg"])
-    with col_u2:
-        st.write("") # 对齐占位
-        st.write("")
-        gen_btn = st.button("🚀 开始生成高清视频", use_container_width=True)
+    u_bg = st.file_uploader("📸 上传背景图片:", type=["jpg", "png", "jpeg"])
+    
+    st.write("") 
+    gen_btn = st.button("🚀 开始合成高清视频", use_container_width=True)
 
     if gen_btn:
         if not u_content.strip():
-            st.error("请输入正文内容后再生成！")
+            st.error("请输入内容后再生成！")
             return
             
         src = u_bg if u_bg else ("default_bg.jpg" if os.path.exists("default_bg.jpg") else None)
         
-        with st.spinner("正在进行超采样渲染并合成视频...这可能需要几十秒"):
+        with st.spinner("正在合成高清视频..."):
             try:
                 video_path = build_video(u_title, u_content, src, client, settings)
                 if video_path:
-                    st.success("✅ 视频渲染成功！")
+                    st.success("✅ 渲染完成！")
                     st.video(video_path)
                     with open(video_path, "rb") as f:
-                        st.download_button("📥 立即下载高清 MP4", f, "output_hd.mp4")
+                        st.download_button("📥 下载 MP4 视频", f, "output.mp4")
             except Exception as e:
-                st.error(f"渲染发生错误: {e}")
+                st.error(f"渲染出错: {e}")
 
 if __name__ == "__main__":
     main()
