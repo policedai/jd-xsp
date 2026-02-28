@@ -28,99 +28,104 @@ if hasattr(PIL.Image, 'Resampling'):
 else:
     RESAMPLE_MODE = getattr(PIL.Image, 'ANTIALIAS', PIL.Image.BICUBIC)
 
-# --- [3. 增强型文字渲染] ---
-def create_full_content_image(title, content, font_path, settings):
-    # 预设画布测量
-    temp_img = PIL.Image.new('RGBA', (720, 5000), (255, 255, 255, 0))
-    draw = PIL.ImageDraw.Draw(temp_img)
+# --- [3. 高清超采样文字渲染逻辑] ---
+def create_hd_text_image(title, content, font_path, settings):
+    """
+    采用 2 倍超采样技术：先在 1440 宽度的画布上渲染，再缩小至 720，
+    这样可以利用 PIL 的抗锯齿算法让文字边缘极其清晰平滑。
+    """
+    scale = 2  # 倍率
+    base_w = 720
+    canvas_w = base_w * scale
+    max_text_w = (base_w - 80) * scale # 留边
     
-    title_size = settings['title_size']
-    content_size = settings['content_size']
-    max_w = 640  
-    line_spacing = 12
-    
-    # 颜色获取
+    # 颜色配置
     color_map = {
         "鹅黄色": (255, 241, 67),
         "科技白": (245, 245, 245),
         "象牙金": (250, 218, 141),
         "护眼绿": (199, 237, 204),
-        "天空蓝": (135, 206, 235),
-        "烈焰红": (255, 69, 0)
+        "天空蓝": (135, 206, 235)
     }
-    selected_color = color_map.get(settings['text_color'], (255, 241, 67))
-    title_color = (255, 255, 0) # 标题默认保持亮黄醒目
+    text_color = color_map.get(settings['text_color'], (255, 241, 67))
+    title_color = (255, 255, 0) # 标题固定亮黄
 
-    title_font = PIL.ImageFont.truetype(font_path, title_size)
-    content_font = PIL.ImageFont.truetype(font_path, content_size)
+    # 字体与间距翻倍
+    title_font = PIL.ImageFont.truetype(font_path, settings['title_size'] * scale)
+    content_font = PIL.ImageFont.truetype(font_path, settings['content_size'] * scale)
+    line_spacing = 12 * scale
 
-    all_lines_to_draw = []
+    # 临时画板用于测量
+    temp_draw = PIL.ImageDraw.Draw(PIL.Image.new('RGBA', (canvas_w, 10), (0,0,0,0)))
     
-    # 1. 标题处理
+    all_lines = []
+    
+    # 1. 标题换行处理
     if title.strip():
-        curr_t = ""
-        for char in list(title):
-            test_t = curr_t + char
-            if draw.textbbox((0, 0), test_t, font=title_font)[2] <= max_w:
-                curr_t = test_t
+        curr = ""
+        for char in title:
+            test = curr + char
+            if temp_draw.textbbox((0, 0), test, font=title_font)[2] <= max_text_w:
+                curr = test
             else:
-                all_lines_to_draw.append((curr_t, title_font, title_color))
-                curr_t = char
-        all_lines_to_draw.append((curr_t, title_font, title_color))
-        all_lines_to_draw.append(("", None, 30)) 
+                all_lines.append((curr, title_font, title_color))
+                curr = char
+        all_lines.append((curr, title_font, title_color))
+        all_lines.append(("", None, 40 * scale)) # 标题后间距
 
-    # 2. 正文处理
-    paragraphs = content.split('\n')
-    for para in paragraphs:
+    # 2. 正文换行处理
+    for para in content.split('\n'):
         if not para.strip():
-            all_lines_to_draw.append(("", None, 15))
+            all_lines.append(("", None, 20 * scale))
             continue
-        curr_c = ""
-        for char in list(para):
-            test_c = curr_c + char
-            if draw.textbbox((0, 0), test_c, font=content_font)[2] <= max_w:
-                curr_c = test_c
+        curr = ""
+        for char in para:
+            test = curr + char
+            if temp_draw.textbbox((0, 0), test, font=content_font)[2] <= max_text_w:
+                curr = test
             else:
-                all_lines_to_draw.append((curr_c, content_font, selected_color))
-                curr_c = char
-        all_lines_to_draw.append((curr_c, content_font, selected_color))
+                all_lines.append((curr, content_font, text_color))
+                curr = char
+        all_lines.append((curr, content_font, text_color))
 
-    # 3. 计算高度
+    # 3. 计算总高度并绘制
     total_h = 0
-    draw_data = []
-    for line_text, font, info in all_lines_to_draw:
+    draw_plan = []
+    for line_text, font, info in all_lines:
         if font is None:
             total_h += info
-            draw_data.append((None, None, info))
+            draw_plan.append((None, None, info))
         else:
-            bbox = draw.textbbox((0, 0), line_text if line_text else " ", font=font)
-            h = bbox[3] - bbox[1]
-            w = bbox[2] - bbox[0]
-            draw_data.append((line_text, font, info, w, h))
+            bbox = temp_draw.textbbox((0, 0), line_text if line_text else " ", font=font)
+            w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            draw_plan.append((line_text, font, info, w, h))
             total_h += h + line_spacing
 
-    # 4. 绘制
-    res_img = PIL.Image.new('RGBA', (720, total_h + 150), (255, 255, 255, 0))
-    res_draw = PIL.ImageDraw.Draw(res_img)
+    # 4. 最终高清绘制
+    hd_img = PIL.Image.new('RGBA', (canvas_w, total_h + 200), (0, 0, 0, 0))
+    hd_draw = PIL.ImageDraw.Draw(hd_img)
     
-    curr_y = 40
-    for data in draw_data:
-        if data[0] is None:
-            curr_y += data[2]
+    curr_y = 100
+    for item in draw_plan:
+        if item[0] is None:
+            curr_y += item[2]
         else:
-            text, font, color, w, h = data
-            x = (720 - w) // 2
-            # 描边（增加文字厚度感）
-            for off in [(-2,-2), (2,-2), (-2,2), (2,2)]:
-                res_draw.text((x+off[0], curr_y+off[1]), text, font=font, fill=(0,0,0,200))
-            res_draw.text((x, curr_y), text, font=font, fill=color)
+            txt, font, clr, w, h = item
+            x = (canvas_w - w) // 2
+            # 强化描边：多方向偏移增加厚度
+            for off in [(-3,-3), (3,-3), (-3,3), (3,3), (0,3), (0,-3)]:
+                hd_draw.text((x+off[0], curr_y+off[1]), txt, font=font, fill=(0,0,0,255))
+            hd_draw.text((x, curr_y), txt, font=font, fill=clr)
             curr_y += h + line_spacing
 
-    return np.array(res_img)
+    # 5. 【关键】缩小回标准尺寸实现抗锯齿
+    final_h = int(hd_img.size[1] / scale)
+    return np.array(hd_img.resize((base_w, final_h), RESAMPLE_MODE))
 
-# --- [4. 视频合成] ---
-def make_video_one_image(title_text, content_text, image_source, client, settings):
-    paragraphs = [p.strip() for p in content_text.split('\n') if p.strip()]
+# --- [4. 视频合成核心] ---
+def build_video(title, content, bg_image, client, settings):
+    # 语音生成
+    paragraphs = [p.strip() for p in content.split('\n') if p.strip()]
     clips, temp_files = [], []
     
     for i, p in enumerate(paragraphs):
@@ -128,97 +133,110 @@ def make_video_one_image(title_text, content_text, image_source, client, setting
             "vol": 5, "spd": 5, "pit": 5, "per": settings['voice_id']
         })
         if isinstance(res, dict): continue
-        tmp = f"v_{i}.mp3"
+        tmp = f"part_{i}.mp3"
         with open(tmp, "wb") as f: f.write(res)
         temp_files.append(tmp)
         c = AudioFileClip(tmp)
         clips.append(c)
-        clips.append(c.subclip(0, min(0.5, c.duration)).volumex(0)) # 短停顿
+        clips.append(c.subclip(0, min(0.4, c.duration)).volumex(0)) # 句间自然停顿
     
     if not clips: return None
     
     final_audio = concatenate_audioclips(clips)
     duration = final_audio.duration + 0.5
-    temp_audio_path = "final_audio.mp3"
-    final_audio.write_audiofile(temp_audio_path, fps=44100, logger=None)
+    temp_audio = "temp_final.mp3"
+    final_audio.write_audiofile(temp_audio, fps=44100, logger=None)
     
+    # 获取字体
     font_path = "simhei.ttf" if os.path.exists("simhei.ttf") else "Arial"
 
     try:
-        # 背景
-        if image_source:
-            with PIL.Image.open(image_source) as img:
+        # 背景裁剪适配 720x1280
+        if bg_image:
+            with PIL.Image.open(bg_image) as img:
                 img = img.convert("RGB")
-                ratio = max(720/img.size[0], 1280/img.size[1])
-                new_size = (int(img.size[0]*ratio), int(img.size[1]*ratio))
-                bg_clip = ImageClip(np.array(img.resize(new_size, RESAMPLE_MODE))).set_duration(duration).set_position("center")
+                r = max(720/img.size[0], 1280/img.size[1])
+                new_size = (int(img.size[0]*r), int(img.size[1]*r))
+                bg_arr = np.array(img.resize(new_size, RESAMPLE_MODE))
+                bg_clip = ImageClip(bg_arr).set_duration(duration).set_position("center")
         else:
             bg_clip = ImageClip(np.zeros((1280, 720, 3))).set_duration(duration)
 
-        # 文字
-        full_text_arr = create_full_content_image(title_text, content_text, font_path, settings)
-        text_clip = ImageClip(full_text_arr).set_duration(duration).set_position(('center', 100))
+        # 文字图层生成
+        text_arr = create_hd_text_image(title, content, font_path, settings)
+        text_clip = ImageClip(text_arr).set_duration(duration).set_position(('center', 120))
 
-        final_video = CompositeVideoClip([bg_clip, text_clip], size=(720, 1280)).set_audio(AudioFileClip(temp_audio_path))
-        output_name = "output_video.mp4"
-        final_video.write_videofile(output_name, fps=24, codec="libx264", audio_codec="aac", logger=None)
+        # 合成与导出
+        final_video = CompositeVideoClip([bg_clip, text_clip], size=(720, 1280)).set_audio(AudioFileClip(temp_audio))
+        
+        output_name = "hd_video_output.mp4"
+        # 【重要】增加 bitrate 确保文字清晰度不被压缩损伤
+        final_video.write_videofile(
+            output_name, 
+            fps=24, 
+            codec="libx264", 
+            audio_codec="aac", 
+            bitrate="4000k", 
+            logger=None
+        )
         return output_name
     finally:
-        if os.path.exists(temp_audio_path): os.remove(temp_audio_path)
+        if os.path.exists(temp_audio): os.remove(temp_audio)
         for f in temp_files:
             if os.path.exists(f): os.remove(f)
 
-# --- [5. 界面] ---
+# --- [5. 界面入口] ---
 def main():
-    st.set_page_config(page_title="短视频助手", layout="centered")
-    if check_password():
-        st.title("🎬 视频自动排版生成器")
-        
-        # --- 侧边栏配置 ---
-        st.sidebar.header("⚙️ 样式设置")
-        v_choice = st.sidebar.selectbox("🎙️ 选择音色", ["男声 (4179)", "女声 (4146)"], index=0)
-        voice_id = 4179 if "男声" in v_choice else 4146
-        
-        t_color = st.sidebar.selectbox("🎨 文字颜色", ["鹅黄色", "科技白", "象牙金", "护眼绿", "天空蓝", "烈焰红"], index=0)
-        
-        t_size = st.sidebar.slider("📏 标题大小", 30, 80, 50)
-        c_size = st.sidebar.slider("📝 正文大小", 20, 60, 32)
-        
-        settings = {
-            "voice_id": voice_id,
-            "text_color": t_color,
-            "title_size": t_size,
-            "content_size": c_size
-        }
+    st.set_page_config(page_title="高清视频助手", layout="centered")
+    if not check_password(): return
 
-        # --- 主界面 ---
-        client = AipSpeech(
-            str(st.secrets["baidu_api"]["app_id"]), 
-            str(st.secrets["baidu_api"]["api_key"]), 
-            str(st.secrets["baidu_api"]["secret_key"])
-        )
-        
-        u_title = st.text_input("💎 视频标题:", "在这里输入标题")
-        u_content = st.text_area("✍️ 朗读内容:", height=300, placeholder="在此输入正文内容...")
-        u_bg = st.file_uploader("📸 上传背景图:", type=["jpg", "png", "jpeg"])
+    st.title("🎬 高清紧凑视频助手")
+    
+    # 侧边栏
+    st.sidebar.header("🎨 视觉与音色微调")
+    v_opt = st.sidebar.selectbox("🎙️ 朗读音色", ["男声 (4179)", "女声 (4146)"])
+    v_id = 4179 if "男声" in v_opt else 4146
+    
+    t_color = st.sidebar.selectbox("🎨 正文颜色", ["鹅黄色", "科技白", "象牙金", "护眼绿", "天空蓝"])
+    t_size = st.sidebar.slider("📏 标题大小", 30, 80, 52)
+    c_size = st.sidebar.slider("📝 正文大小", 20, 60, 34)
+    
+    settings = {
+        "voice_id": v_id,
+        "text_color": t_color,
+        "title_size": t_size,
+        "content_size": c_size
+    }
 
-        if st.button("🚀 开始合成视频"):
-            if not u_content.strip():
-                st.warning("内容不能为空")
-                return
-                
-            src = u_bg if u_bg else ("default_bg.jpg" if os.path.exists("default_bg.jpg") else None)
+    # 百度 API 初始化
+    client = AipSpeech(
+        str(st.secrets["baidu_api"]["app_id"]), 
+        str(st.secrets["baidu_api"]["api_key"]), 
+        str(st.secrets["baidu_api"]["secret_key"])
+    )
+
+    # 输入区
+    u_title = st.text_input("💎 标题:", "在这里输入震撼的标题")
+    u_content = st.text_area("✍️ 朗读内容:", height=300, placeholder="请输入正文内容...")
+    u_bg = st.file_uploader("📸 背景图片:", type=["jpg", "png", "jpeg"])
+
+    if st.button("🚀 开始高清渲染"):
+        if not u_content.strip():
+            st.warning("内容不能为空哦")
+            return
             
-            with st.spinner("视频渲染中... 请稍候"):
-                try:
-                    res = make_video_one_image(u_title, u_content, src, client, settings)
-                    if res:
-                        st.success("✨ 视频生成成功！")
-                        st.video(res)
-                        with open(res, "rb") as f:
-                            st.download_button("📥 点击下载视频", f, "video_output.mp4")
-                except Exception as e:
-                    st.error(f"发生错误: {e}")
+        src = u_bg if u_bg else ("default_bg.jpg" if os.path.exists("default_bg.jpg") else None)
+        
+        with st.spinner("正在进行超采样渲染并合成视频..."):
+            try:
+                video_path = build_video(u_title, u_content, src, client, settings)
+                if video_path:
+                    st.success("✅ 视频渲染完成！")
+                    st.video(video_path)
+                    with open(video_path, "rb") as f:
+                        st.download_button("📥 下载高清视频", f, "output_hd.mp4")
+            except Exception as e:
+                st.error(f"渲染发生错误: {e}")
 
 if __name__ == "__main__":
     main()
